@@ -23,5 +23,5 @@ from emaildjango import urls
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('email/',include('emaildjango.urls')),
+    path('',include('emaildjango.urls')),
 ]

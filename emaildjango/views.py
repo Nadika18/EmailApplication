@@ -1,38 +1,302 @@
-from django.shortcuts import render
-
-# Create your views here.
-
-
+from emaildjango.databasesetup import *
 from rest_framework.views import APIView
+from django.db import connections, DatabaseError
+from rest_framework.response import Response
+from django.shortcuts import render
+from django.core.exceptions import ObjectDoesNotExist
+from django.utils import crypto
+from django.contrib.auth.hashers import make_password
+from django.contrib.auth.hashers import check_password
+from django.http import JsonResponse
 from django.conf import settings
 from django.core.mail import send_mail
-from rest_framework.response import Response
+from django.http import HttpResponse
+from emaildjango.serializers import EmployeeSerializer
+from django.utils.crypto import get_random_string
+from django.core.mail import EmailMultiAlternatives
 
-class EmailAPI(APIView):
-    def get(self, request):
-        subject = self.request.GET.get('subject')
-        txt_ = self.request.GET.get('text')
-        html_ = self.request.GET.get('html')
-        recipient_list = self.request.GET.get('recipient_list')
-        from_email = settings.DEFAULT_FROM_EMAIL
 
-        if subject is None and txt_ is None and html_ is None and recipient_list is None:
-            return Response({'msg': 'There must be a subject, a recipient list, and either HTML or Text.'}, status=200)
-        elif html_ is not None and txt_ is not None:
-            return Response({'msg': 'You can either use HTML or Text.'}, status=200)
-        elif html_ is None and txt_ is None:
-            return Response({'msg': 'Either HTML or Text is required.'}, status=200)
-        elif recipient_list is None:
-            return Response({'msg': 'Recipient List required.'}, status=200)
-        elif subject is None:
-            return Response({'msg': 'Subject required.'}, status=200)
-        else:
-            sent_mail = send_mail(
-                subject,
-                txt_,
-                from_email,
-                recipient_list.split(','),
-                html_message=html_,
-                fail_silently=False,
-            )
-            return Response({'msg': sent_mail}, status=200)
+
+
+#send email to thoese emails which are in database in employee table
+class send_email_to_employees(APIView):
+    def get(self,request):
+            with connections['default'].cursor() as cursor:
+                cursor.execute("SELECT email FROM employees")
+                rows = cursor.fetchall()
+                try:
+                    for row in rows:
+                        email = row[0]
+                        # Generate activation token
+                        token = crypto.get_random_string(length=32)
+                        # Save activation token in the database
+                        cursor.execute("UPDATE employees SET activation_token = %s WHERE email = %s", [token, email])
+
+                        # Construct activation link
+                        activation_link = f"http://127.0.0.1:8000/email/activate/{token}/"
+
+                        subject = "Password Activation"
+                        message="Activate your account"
+                        message1 = f"Click the following link to activate your account: <a href='{activation_link}'>Activate Account</a>"
+                        #  "Please set your password to activate your account: {activation_link} "
+                        email= EmailMultiAlternatives(subject, message, settings.DEFAULT_FROM_EMAIL, [email])
+                        # send_mail(
+                        #     subject,
+                        #     message,
+                        #     settings.DEFAULT_FROM_EMAIL,  # Use the default sender email from settings
+                        #     [email],
+                        #     # verify=False,  # Disable SSL certificate check
+                        #     # fail_silently=True,  # Set to True to suppress exceptions, False to raise exceptions on errors
+                        # )
+                        email.attach_alternative(message1, "text/html")
+                        email.send()
+                    return Response({"message: Email sent"}, status=200)
+                except Exception as e:
+                    print(e)
+                    return HttpResponse("Email not sent",status=400)
+
+        
+    
+
+        
+def updateDatabase(request):
+    # createTable()
+    # insertData()
+    createSession()
+   
+    return HttpResponse("Database updated")
+    
+        
+
+class listEmployees(APIView):
+    def get(self,request,id=None):
+        with connections['default'].cursor() as cursor:
+            if id is not None:    
+                cursor.execute(""" SELECT * FROM employees 
+                        WHERE id=%s """,[id])
+                rows=cursor.fetchall()
+                if not rows:
+                    return Response({"message: Employee not found"}, status=404)
+            else:
+                cursor.execute("""SELECT * FROM employees""")
+                rows = cursor.fetchall()
+            columns = [col[0] for col in cursor.description]
+            data = [dict(zip(columns, row)) for row in rows]
+        serializer=EmployeeSerializer(data,many=True)
+        return Response(serializer.data, status=200)
+
+class addEmployee(APIView):   
+    def post(self,request):
+        email = request.data.get('email')
+        is_manager = request.data.get('ismanager')
+        age = request.data.get('age')
+        with connections['default'].cursor() as cursor:
+            cursor.execute("""
+                INSERT INTO employees (email, isManager, age)
+                VALUES (%s, %s, %s)
+            """, [email, is_manager, age])
+                # Commit the transaction
+            connections['default'].commit()
+        return Response({"message:Employee added successfully"},status=201)  
+    
+
+class deleteEmployee(APIView):    
+    def delete(self,request,id):
+        with connections['default'].cursor() as cursor:
+           
+            cursor.execute(""" 
+                        DELETE FROM employees
+                        WHERE id=%s""",[id])
+            rows_affected = cursor.rowcount
+            if rows_affected == 0:
+                return Response({"message:Employee not found"},status=404)
+            else:
+                connections['default'].commit()
+                
+                return Response({"message:Employee deleted successfully"},status=200)
+            
+class updateEmployee(APIView):
+    def put(self, request, id):
+        with connections['default'].cursor() as cursor:
+            update_query = "UPDATE employees SET "
+            params = []
+            
+            if 'email' in request.data:
+                update_query += "email = %s, "
+                params.append(request.data['email'])
+            
+            if 'ismanager' in request.data:
+                update_query += "isManager = %s, "
+                params.append(request.data['ismanager'])
+            
+            if 'age' in request.data:
+                update_query += "age = %s, "
+                params.append(request.data['age'])
+            
+            # Remove the trailing comma and space from the query
+            update_query = update_query.rstrip(', ')
+            
+            if len(params) == 0:
+                return HttpResponse("No fields to update", status=400)
+            
+            update_query += " WHERE id = %s"
+            params.append(id)
+            cursor.execute(update_query, params)
+            rows_affected = cursor.rowcount
+
+            if rows_affected == 0:
+                return HttpResponse("Employee does not exist", status=404)
+            else:
+                connections['default'].commit()
+                return HttpResponse("Employee updated successfully")
+               
+class activate_account(APIView):
+    
+    def post(self,request, token):
+        with connections['default'].cursor() as cursor:
+            cursor.execute("SELECT email FROM employees WHERE activation_token = %s", [token])
+            row = cursor.fetchone()
+            if row:
+                email = row[0]
+
+                
+                    # Retrieve the password from the JSON data
+                password = request.data.get('password')
+
+                    # Validate the password (you can add your own validation logic)
+
+                    # Hash the password using Django's make_password function
+                hashed_password = make_password(password)
+
+                    # Update the password and activate the account in the database
+                cursor.execute("UPDATE employees SET password = %s, activation_token = NULL WHERE email = %s", [hashed_password, email])
+                connections['default'].commit()
+
+                    # Return a JSON response indicating success
+                return Response({'message': 'Password set successfully'})
+
+            
+
+            else:
+                # Handle invalid or expired token
+                # ...
+                return Response({"message:Invalid token"},status=400)       
+
+class login(APIView):
+    def post(self,request):
+        email=request.data.get('email')
+        password=request.data.get('password')
+        
+        with connections['default'].cursor() as cursor:
+            cursor.execute("""
+                           SELECT id,email,password FROM employees
+                           WHERE email=%s
+                           """,[email])
+            row=cursor.fetchone()
+            if row:
+                user_id,user_email,user_password=row
+                print(user_password,password)
+                print(check_password(user_password,password))
+                if check_password(password,user_password):
+                    #store user's session
+                    # Generate a session key
+                    session_key = get_random_string(length=32)
+
+                 # Insert a new session record into the "sessions" table
+                    with connections['default'].cursor() as cursor:
+                        cursor.execute("INSERT INTO sessions (session_key, user_id) VALUES (%s, %s)", [session_key, user_id])
+                        connections['default'].commit()
+                        # session=SessionStore()
+                        # session['user_id']=user_id
+                        # session.create()
+                        response=Response({"message:Login successful"},status=200)
+                        response.set_cookie('sessionid',session_key)
+                    
+                    return response
+                else:
+                    return Response({"message:Invalid password"},status=400)
+            else:
+                return Response({"message:User not found"},status=400)
+            
+
+class profile_view(APIView):
+        
+    def get(self,request):
+        # Retrieve the session key from the request
+        session_key = request.COOKIES.get('sessionid')
+      
+        # Query the "sessions" table using the session key to retrieve the user ID
+        with connections['default'].cursor() as cursor:
+            cursor.execute("SELECT user_id FROM sessions WHERE session_key = %s", [session_key])
+            row = cursor.fetchone()
+
+            if row:
+                user_id = row[0]
+                
+
+                # Fetch user information from the "employees" table using the user ID
+                with connections['default'].cursor() as cursor:
+                    cursor.execute("SELECT * FROM employees WHERE id = %s", [user_id])
+                    user_row = cursor.fetchone()
+                    print(user_row)
+                    if user_row:
+                        employee = {
+                            'email': user_row[1],
+                            'isManager': user_row[3],
+                            'age': user_row[4],
+                        } 
+                        return Response(employee, status=200)
+
+        # Handle invalid or expired session key
+        return Response({"message": "Invalid session"}, status=400)
+    
+class profile_edit(APIView):    
+    def put(self,request):
+        session_key = request.COOKIES.get('sessionid')
+      
+        # Query the "sessions" table using the session key to retrieve the user ID
+        with connections['default'].cursor() as cursor:
+            cursor.execute("SELECT user_id FROM sessions WHERE session_key = %s", [session_key])
+            row = cursor.fetchone()
+
+            if row:
+                id = row[0]
+          
+                with connections['default'].cursor() as cursor:
+                    update_query = "UPDATE employees SET "
+                    params = []
+                    
+                    if 'email' in request.data:
+                        update_query += "email = %s, "
+                        params.append(request.data['email'])
+                    
+                    if 'ismanager' in request.data:
+                        update_query += "isManager = %s, "
+                        params.append(request.data['ismanager'])
+                    
+                    if 'age' in request.data:
+                        update_query += "age = %s, "
+                        params.append(request.data['age'])
+                    
+                    # Remove the trailing comma and space from the query
+                    update_query = update_query.rstrip(', ')
+                    
+                    if len(params) == 0:
+                        return HttpResponse("No fields to update", status=400)
+                    
+                    update_query += " WHERE id = %s"
+                    params.append(id)
+                    cursor.execute(update_query, params)
+                    rows_affected = cursor.rowcount
+
+                    if rows_affected == 0:
+                        return Response("Employee does not exist", status=404)
+                    else:
+                        connections['default'].commit()
+                        return Response("Employee updated successfully")
+        
+
+ 
+        
+    
+
