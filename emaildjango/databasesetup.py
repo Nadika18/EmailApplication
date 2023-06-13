@@ -39,6 +39,14 @@ def createSession():
 #         cursor.execute(""" DROP TABLE IF EXISTS employees""")
 #         connections['default'].commit()
 
+def alterTable():
+    with connections['default'].cursor() as cursor:
+        cursor.execute("""
+                       ALTER TABLE employees
+                          ADD COLUMN IF NOT EXISTS isActive BOOLEAN NOT NULL DEFAULT FALSE
+                       """)
+        connections['default'].commit()
+
 
     
 

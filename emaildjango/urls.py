@@ -15,5 +15,7 @@ urlpatterns = [
     path('login/',login.as_view(),name='login'),
     path('view_profile/',profile_view.as_view(),name='profile'),
     path('edit_profile/',profile_edit.as_view(),name='profile'),
-    
+    path('deactivate/',deactivate_account.as_view(),name='deactivate-account'),
+    path('activate_user/',activate_user.as_view(),name='activate-user'),
+    path('logout/',logout.as_view(),name='logout'),
 ]

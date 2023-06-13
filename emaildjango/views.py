@@ -56,13 +56,34 @@ class send_email_to_employees(APIView):
                     return HttpResponse("Email not sent",status=400)
 
         
+class activate_user(APIView):
+    def put(self,request):
+        email=request.data.get('email')
+        try:
+            with connections['default'].cursor() as cursor:
+                cursor.execute("UPDATE employees SET isActive=True WHERE email=%s",[email])
+                connections['default'].commit()
+            return Response({"message:User activated successfully"},status=200)
+        except:
+            return Response({"message:User not found"},status=400)
     
+class logout(APIView):
+    def delete(self,request):
+        session_key=request.COOKIES.get('sessionid')
+        try:
+            with connections['default'].cursor() as cursor:
+                cursor.execute("DELETE FROM sessions WHERE session_key=%s",[session_key])
+                connections['default'].commit()
+            return Response({"message:Logged out successfully"},status=200)  
+        except:
+            return Response({"message:Please log in first"},status=400)     
 
         
 def updateDatabase(request):
     # createTable()
     # insertData()
-    createSession()
+    # createSession()
+    alterTable()
    
     return HttpResponse("Database updated")
     
@@ -169,7 +190,7 @@ class activate_account(APIView):
                 hashed_password = make_password(password)
 
                     # Update the password and activate the account in the database
-                cursor.execute("UPDATE employees SET password = %s, activation_token = NULL WHERE email = %s", [hashed_password, email])
+                cursor.execute("UPDATE employees SET password = %s, isActive= True, activation_token = NULL WHERE email = %s", [hashed_password, email])
                 connections['default'].commit()
 
                     # Return a JSON response indicating success
@@ -189,30 +210,33 @@ class login(APIView):
         
         with connections['default'].cursor() as cursor:
             cursor.execute("""
-                           SELECT id,email,password FROM employees
+                           SELECT id,email,password,isActive FROM employees
                            WHERE email=%s
                            """,[email])
             row=cursor.fetchone()
             if row:
-                user_id,user_email,user_password=row
-                if check_password(password,user_password):
-                    #store user's session
-                    # Generate a session key
-                    session_key = get_random_string(length=32)
+                user_id,user_email,user_password,isActive=row
+                if isActive==False:
+                    return Response({"message:Account is not activated"},status=400)
+                else:    
+                    if check_password(password,user_password):
+                        #store user's session
+                        # Generate a session key
+                        session_key = get_random_string(length=32)
 
-                 # Insert a new session record into the "sessions" table
-                    with connections['default'].cursor() as cursor:
-                        cursor.execute("INSERT INTO sessions (session_key, user_id) VALUES (%s, %s)", [session_key, user_id])
-                        connections['default'].commit()
-                        # session=SessionStore()
-                        # session['user_id']=user_id
-                        # session.create()
-                        response=Response({"message:Login successful"},status=200)
-                        response.set_cookie('sessionid',session_key)
-                    
-                    return response
-                else:
-                    return Response({"message:Invalid password"},status=400)
+                    # Insert a new session record into the "sessions" table
+                        with connections['default'].cursor() as cursor:
+                            cursor.execute("INSERT INTO sessions (session_key, user_id) VALUES (%s, %s)", [session_key, user_id])
+                            connections['default'].commit()
+                            # session=SessionStore()
+                            # session['user_id']=user_id
+                            # session.create()
+                            response=Response({"message:Login successful"},status=200)
+                            response.set_cookie('sessionid',session_key)
+                        
+                        return response
+                    else:
+                        return Response({"message:Invalid password"},status=400)
             else:
                 return Response({"message:User not found"},status=400)
             
@@ -245,7 +269,7 @@ class profile_view(APIView):
                         return Response(employee, status=200)
 
         # Handle invalid or expired session key
-        return Response({"message": "Invalid session"}, status=400)
+        return Response({"message": "Login first"}, status=400)
     
 class profile_edit(APIView):    
     def put(self,request):
@@ -291,9 +315,60 @@ class profile_edit(APIView):
                     else:
                         connections['default'].commit()
                         return Response("Employee updated successfully")
+            else:
+                return Response({"message:Please log in first"},status=400)
         
 
- 
-        
+class deactivate_account(APIView):
+         
+    def delete(self,request):
+        session_id=request.COOKIES.get('sessionid')
+        # Query the "sessions" table using the session key to retrieve the user ID
+        with connections['default'].cursor() as cursor:
+            cursor.execute("""
+                           SELECT user_id FROM sessions WHERE session_key=%s
+                           """,[session_id])
+            row=cursor.fetchone()
+            
+            if row:
+                id=row[0]
+                # Update the isActive field to False in the database
+                with connections['default'].cursor() as cursor:
+                    cursor.execute("""
+                                   UPDATE employees SET isActive=False WHERE id=%s
+                                   """,[id])
+                    connections['default'].commit()
+                
+                #delete the session record from cookies
+                response=Response({"message:Account deactivated successfully"},status=200)
+                response.delete_cookie('sessionid')
+                
+                return response
+            else:
+                return Response({"message:Please log in first"},status=400)
+                
+                    
+                    
+
+# class deactivate_account(APIView):
+#     def post(self,request):
+#         session_key = request.COOKIES.get('sessionid')
+      
+#         # Query the "sessions" table using the session key to retrieve the user ID
+#         with connections['default'].cursor() as cursor:
+#             cursor.execute("SELECT user_id FROM sessions WHERE session_key = %s", [session_key])
+#             row = cursor.fetchone()
+
+#             if row:
+#                 user_id = row[0]
+#                 # Update the isActive field to False in the database
+#                 with connections['default'].cursor() as cursor:
+#                     cursor.execute("UPDATE employees SET isActive = FALSE WHERE id = %s", [user_id])
+#                     connections['default'].commit()
+
+#                     # Delete the session record from the "sessions" table
+#                     with connections['default'].cursor() as cursor:
+                        
+            
     
 
