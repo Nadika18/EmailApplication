@@ -33,7 +33,7 @@ class send_email_to_employees(APIView):
                         cursor.execute("UPDATE employees SET activation_token = %s WHERE email = %s", [token, email])
 
                         # Construct activation link
-                        activation_link = f"http://127.0.0.1:8000/email/activate/{token}/"
+                        activation_link = f"http://127.0.0.1:8000/activate/{token}"
 
                         subject = "Password Activation"
                         message="Activate your account"
@@ -195,8 +195,6 @@ class login(APIView):
             row=cursor.fetchone()
             if row:
                 user_id,user_email,user_password=row
-                print(user_password,password)
-                print(check_password(user_password,password))
                 if check_password(password,user_password):
                     #store user's session
                     # Generate a session key
@@ -238,7 +236,6 @@ class profile_view(APIView):
                 with connections['default'].cursor() as cursor:
                     cursor.execute("SELECT * FROM employees WHERE id = %s", [user_id])
                     user_row = cursor.fetchone()
-                    print(user_row)
                     if user_row:
                         employee = {
                             'email': user_row[1],
