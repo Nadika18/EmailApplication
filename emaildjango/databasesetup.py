@@ -1,6 +1,5 @@
 from django.db import connections
 
-
 def createTable():
     with connections['default'].cursor() as cursor:
         cursor.execute(""" CREATE TABLE IF NOT EXISTS employees(
@@ -20,8 +19,7 @@ def insertData():
         cursor.execute("""
                        INSERT INTO employees(email,isManager,age)
                        VALUES
-                       ('076bct038.nadika@pcampus.edu.np','False',22),
-                       ('nadikapoudel16@gmail.com','False',22)
+                       ('076bct038.nadika@pcampus.edu.np','True',22)
                        """)
         connections['default'].commit()
         
@@ -34,18 +32,21 @@ def createSession():
             """)
         connections['default'].commit()
         
-# def dropTable():
-#     with connections['default'].cursor() as cursor:
-#         cursor.execute(""" DROP TABLE IF EXISTS employees""")
-#         connections['default'].commit()
+
 
 def alterTable():
     with connections['default'].cursor() as cursor:
         cursor.execute("""
                        ALTER TABLE employees
                           ADD COLUMN IF NOT EXISTS isActive BOOLEAN NOT NULL DEFAULT FALSE
+                          
                        """)
         connections['default'].commit()
+        
+# def dropTable():
+#     with connections['default'].cursor() as cursor:
+#         cursor.execute(""" DROP TABLE IF EXISTS employees""")
+#         connections['default'].commit()
 
 
     

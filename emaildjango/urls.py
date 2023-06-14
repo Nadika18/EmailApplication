@@ -19,3 +19,4 @@ urlpatterns = [
     path('activate_user/',activate_user.as_view(),name='activate-user'),
     path('logout/',logout.as_view(),name='logout'),
 ]
+

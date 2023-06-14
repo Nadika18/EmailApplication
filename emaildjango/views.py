@@ -1,9 +1,6 @@
 from emaildjango.databasesetup import *
 from rest_framework.views import APIView
-from django.db import connections, DatabaseError
 from rest_framework.response import Response
-from django.shortcuts import render
-from django.core.exceptions import ObjectDoesNotExist
 from django.utils import crypto
 from django.contrib.auth.hashers import make_password
 from django.contrib.auth.hashers import check_password
@@ -66,24 +63,14 @@ class activate_user(APIView):
             return Response({"message:User activated successfully"},status=200)
         except:
             return Response({"message:User not found"},status=400)
-    
-class logout(APIView):
-    def delete(self,request):
-        session_key=request.COOKIES.get('sessionid')
-        try:
-            with connections['default'].cursor() as cursor:
-                cursor.execute("DELETE FROM sessions WHERE session_key=%s",[session_key])
-                connections['default'].commit()
-            return Response({"message:Logged out successfully"},status=200)  
-        except:
-            return Response({"message:Please log in first"},status=400)     
+   
 
         
 def updateDatabase(request):
     # createTable()
-    # insertData()
+    insertData()
     # createSession()
-    alterTable()
+    # alterTable()
    
     return HttpResponse("Database updated")
     
@@ -91,21 +78,45 @@ def updateDatabase(request):
 
 class listEmployees(APIView):
     def get(self,request,id=None):
-        with connections['default'].cursor() as cursor:
-            if id is not None:    
-                cursor.execute(""" SELECT * FROM employees 
-                        WHERE id=%s """,[id])
-                rows=cursor.fetchall()
-                if not rows:
-                    return Response({"message: Employee not found"}, status=404)
-            else:
-                cursor.execute("""SELECT * FROM employees""")
-                rows = cursor.fetchall()
-            columns = [col[0] for col in cursor.description]
-            data = [dict(zip(columns, row)) for row in rows]
-        serializer=EmployeeSerializer(data,many=True)
-        return Response(serializer.data, status=200)
+        session_key = request.COOKIES.get('sessionid')
+        if not session_key:
+            return Response({"message:Please log in first"},status=400)
+        else:
+      
+            # Query the "sessions" table using the session key to retrieve the user ID
+            with connections['default'].cursor() as cursor:
+                cursor.execute("SELECT user_id FROM sessions WHERE session_key = %s", [session_key])
+                row = cursor.fetchone()
 
+                if row:
+                    user_id = row[0]
+                    
+
+                    # Fetch user information from the "employees" table using the user ID
+                    with connections['default'].cursor() as cursor:
+                        cursor.execute("SELECT id,isManager FROM employees WHERE id = %s", [user_id])
+                        user_row = cursor.fetchone()
+                        user_id,isManager=user_row
+                        if isManager:
+                            with connections['default'].cursor() as cursor:
+                                if id is not None:    
+                                    cursor.execute(""" SELECT * FROM employees 
+                                            WHERE id=%s """,[id])
+                                    rows=cursor.fetchall()
+                                    if not rows:
+                                        return Response({"message: Employee not found"}, status=404)
+                                else:
+                                    cursor.execute("""SELECT * FROM employees""")
+                                    rows = cursor.fetchall()
+                                columns = [col[0] for col in cursor.description]
+                                data = [dict(zip(columns, row)) for row in rows]
+                            serializer=EmployeeSerializer(data,many=True)
+                            return Response(serializer.data, status=200)
+                        else:
+                            return Response({"message:You are not authorized to view this page. Can be viewed by admin only"},status=400)
+                else:
+                    return Response({"message:Please log in first"},status=400)
+                
 class addEmployee(APIView):   
     def post(self,request):
         email = request.data.get('email')
@@ -200,7 +211,6 @@ class activate_account(APIView):
 
             else:
                 # Handle invalid or expired token
-                # ...
                 return Response({"message:Invalid token"},status=400)       
 
 class login(APIView):
@@ -208,6 +218,7 @@ class login(APIView):
         email=request.data.get('email')
         password=request.data.get('password')
         
+        # Query the database to retrieve the user's email and password
         with connections['default'].cursor() as cursor:
             cursor.execute("""
                            SELECT id,email,password,isActive FROM employees
@@ -219,19 +230,19 @@ class login(APIView):
                 if isActive==False:
                     return Response({"message:Account is not activated"},status=400)
                 else:    
+                    # Check if the password is correct
                     if check_password(password,user_password):
                         #store user's session
                         # Generate a session key
                         session_key = get_random_string(length=32)
 
-                    # Insert a new session record into the "sessions" table
+                    # Insert a new session record into the "sessions" table with session key and user ID recorded
                         with connections['default'].cursor() as cursor:
                             cursor.execute("INSERT INTO sessions (session_key, user_id) VALUES (%s, %s)", [session_key, user_id])
                             connections['default'].commit()
-                            # session=SessionStore()
-                            # session['user_id']=user_id
-                            # session.create()
+                            
                             response=Response({"message:Login successful"},status=200)
+                            #store cookie in the browser
                             response.set_cookie('sessionid',session_key)
                         
                         return response
@@ -240,7 +251,17 @@ class login(APIView):
             else:
                 return Response({"message:User not found"},status=400)
             
-
+class logout(APIView):
+    def delete(self,request):
+        session_key=request.COOKIES.get('sessionid')
+        try:
+            with connections['default'].cursor() as cursor:
+                cursor.execute("DELETE FROM sessions WHERE session_key=%s",[session_key])
+                connections['default'].commit()
+            return Response({"message:Logged out successfully"},status=200)  
+        except:
+            return Response({"message:Please log in first"},status=400)  
+        
 class profile_view(APIView):
         
     def get(self,request):
@@ -282,7 +303,8 @@ class profile_edit(APIView):
 
             if row:
                 id = row[0]
-          
+                # Update only those fields that are present in the request data
+            
                 with connections['default'].cursor() as cursor:
                     update_query = "UPDATE employees SET "
                     params = []
@@ -348,27 +370,6 @@ class deactivate_account(APIView):
                 return Response({"message:Please log in first"},status=400)
                 
                     
-                    
-
-# class deactivate_account(APIView):
-#     def post(self,request):
-#         session_key = request.COOKIES.get('sessionid')
-      
-#         # Query the "sessions" table using the session key to retrieve the user ID
-#         with connections['default'].cursor() as cursor:
-#             cursor.execute("SELECT user_id FROM sessions WHERE session_key = %s", [session_key])
-#             row = cursor.fetchone()
-
-#             if row:
-#                 user_id = row[0]
-#                 # Update the isActive field to False in the database
-#                 with connections['default'].cursor() as cursor:
-#                     cursor.execute("UPDATE employees SET isActive = FALSE WHERE id = %s", [user_id])
-#                     connections['default'].commit()
-
-#                     # Delete the session record from the "sessions" table
-#                     with connections['default'].cursor() as cursor:
-                        
             
     
 
