@@ -119,68 +119,129 @@ class listEmployees(APIView):
                 
 class addEmployee(APIView):   
     def post(self,request):
-        email = request.data.get('email')
-        is_manager = request.data.get('ismanager')
-        age = request.data.get('age')
+        session_key = request.COOKIES.get('sessionid')
+        if not session_key:
+            return Response({"message:Please log in first"},status=400)
         with connections['default'].cursor() as cursor:
-            cursor.execute("""
-                INSERT INTO employees (email, isManager, age)
-                VALUES (%s, %s, %s)
-            """, [email, is_manager, age])
-                # Commit the transaction
-            connections['default'].commit()
-        return Response({"message:Employee added successfully"},status=201)  
+            cursor.execute("SELECT user_id FROM sessions WHERE session_key = %s", [session_key])
+            row = cursor.fetchone()
+
+            if row:
+                user_id = row[0]
+                    
+
+                    # Fetch user information from the "employees" table using the user ID
+                with connections['default'].cursor() as cursor:
+                    cursor.execute("SELECT id,isManager FROM employees WHERE id = %s", [user_id])
+                    user_row = cursor.fetchone()
+                    user_id,isManager=user_row
+                    if isManager:
+                        email = request.data.get('email')
+                        is_manager = request.data.get('ismanager')
+                        age = request.data.get('age')
+                        with connections['default'].cursor() as cursor:
+                            cursor.execute("""
+                                INSERT INTO employees (email, isManager, age)
+                                VALUES (%s, %s, %s)
+                            """, [email, is_manager, age])
+                                # Commit the transaction
+                            connections['default'].commit()
+                        return Response({"message:Employee added successfully"},status=201) 
+                    else:
+                        return Response({"message:You are not authorized to view this page. Can be viewed by admin only"},status=400) 
+            else:
+                return Response({"message:Please log in first"},status=400)
     
 
 class deleteEmployee(APIView):    
     def delete(self,request,id):
+        session_key = request.COOKIES.get('sessionid')
         with connections['default'].cursor() as cursor:
-           
-            cursor.execute(""" 
-                        DELETE FROM employees
-                        WHERE id=%s""",[id])
-            rows_affected = cursor.rowcount
-            if rows_affected == 0:
-                return Response({"message:Employee not found"},status=404)
+            cursor.execute("SELECT user_id FROM sessions WHERE session_key = %s", [session_key])
+            row = cursor.fetchone()
+
+            if row:
+                user_id = row[0]
+                    
+
+                    # Fetch user information from the "employees" table using the user ID
+                with connections['default'].cursor() as cursor:
+                    cursor.execute("SELECT id,isManager FROM employees WHERE id = %s", [user_id])
+                    user_row = cursor.fetchone()
+                    user_id,isManager=user_row
+                    if isManager:
+                        with connections['default'].cursor() as cursor:
+                        
+                            cursor.execute(""" 
+                                        DELETE FROM employees
+                                        WHERE id=%s""",[id])
+                            rows_affected = cursor.rowcount
+                            if rows_affected == 0:
+                                return Response({"message:Employee not found"},status=404)
+                            else:
+                                connections['default'].commit()
+                                
+                                return Response({"message:Employee deleted successfully"},status=200)
+                    else:
+                        return Response({"message:You are not authorized to view this page. Can be viewed by admin only"},status=400)
             else:
-                connections['default'].commit()
-                
-                return Response({"message:Employee deleted successfully"},status=200)
+                return Response({"message:Please log in first"},status=400)
+            
+            
             
 class updateEmployee(APIView):
     def put(self, request, id):
+        session_key = request.COOKIES.get('sessionid')
         with connections['default'].cursor() as cursor:
-            update_query = "UPDATE employees SET "
-            params = []
-            
-            if 'email' in request.data:
-                update_query += "email = %s, "
-                params.append(request.data['email'])
-            
-            if 'ismanager' in request.data:
-                update_query += "isManager = %s, "
-                params.append(request.data['ismanager'])
-            
-            if 'age' in request.data:
-                update_query += "age = %s, "
-                params.append(request.data['age'])
-            
-            # Remove the trailing comma and space from the query
-            update_query = update_query.rstrip(', ')
-            
-            if len(params) == 0:
-                return HttpResponse("No fields to update", status=400)
-            
-            update_query += " WHERE id = %s"
-            params.append(id)
-            cursor.execute(update_query, params)
-            rows_affected = cursor.rowcount
+            cursor.execute("SELECT user_id FROM sessions WHERE session_key = %s", [session_key])
+            row = cursor.fetchone()
 
-            if rows_affected == 0:
-                return HttpResponse("Employee does not exist", status=404)
+            if row:
+                user_id = row[0]
+                    
+
+                    # Fetch user information from the "employees" table using the user ID
+                with connections['default'].cursor() as cursor:
+                    cursor.execute("SELECT id,isManager FROM employees WHERE id = %s", [user_id])
+                    user_row = cursor.fetchone()
+                    user_id,isManager=user_row
+                    if isManager:
+                        with connections['default'].cursor() as cursor:
+                            update_query = "UPDATE employees SET "
+                            params = []
+                            
+                            if 'email' in request.data:
+                                update_query += "email = %s, "
+                                params.append(request.data['email'])
+                            
+                            if 'ismanager' in request.data:
+                                update_query += "isManager = %s, "
+                                params.append(request.data['ismanager'])
+                            
+                            if 'age' in request.data:
+                                update_query += "age = %s, "
+                                params.append(request.data['age'])
+                            
+                            # Remove the trailing comma and space from the query
+                            update_query = update_query.rstrip(', ')
+                            
+                            if len(params) == 0:
+                                return HttpResponse("No fields to update", status=400)
+                            
+                            update_query += " WHERE id = %s"
+                            params.append(id)
+                            cursor.execute(update_query, params)
+                            rows_affected = cursor.rowcount
+
+                            if rows_affected == 0:
+                                return HttpResponse("Employee does not exist", status=404)
+                            else:
+                                connections['default'].commit()
+                                return HttpResponse("Employee updated successfully")
+                    else:
+                        return Response({"message:You are not authorized to view this page. Can be viewed by admin only"},status=400)
             else:
-                connections['default'].commit()
-                return HttpResponse("Employee updated successfully")
+                return Response({"message:Please log in first"},status=400)
                
 class activate_account(APIView):
     
